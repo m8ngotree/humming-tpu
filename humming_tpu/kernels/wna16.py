@@ -6,12 +6,15 @@ Kernel layout (produced by `prepare`):
     q       jnp.uint4 | int4 | uint8 | int8  [K, N]   sub-byte types are packed natively by XLA
     scales  bfloat16 [G, N]
     zeros   bfloat16 [G, N] or None                   exact for integers <= 256
-Zeros are stored as bf16 rather than packed uint4 so a single group row can be
-sliced dynamically in VMEM. That costs ~2.5% extra HBM bytes at group 128.
+Zeros are bf16 rather than packed uint4 to keep the in-kernel row loads simple.
+That costs ~2.5% extra HBM bytes at group 128.
 
 Grid: (M blocks, N blocks, K blocks), K innermost with an fp32 VMEM accumulator.
-The scale/zero BlockSpec covers every group for its N block ([G, block_n]): a
-block of block_k // group rows would usually violate the sublane-multiple-of-8 rule.
+Scales/zeros are tiled per K block ([block_k // group, block_n]) so every group
+row is a static index. Mosaic requires that row count to be a multiple of 8 (the
+sublane tile) or to cover all of K, which sets the minimum block_k (1024 at
+group 128). Dynamic single-row loads are rejected by Mosaic: the start index
+cannot be proven 8-aligned (error E2003).
 """
 
 from __future__ import annotations
@@ -56,14 +59,13 @@ def _wna16_kernel(x_ref, q_ref, s_ref, *rest, group: int, has_zero_point: bool):
     def _init():
         acc_ref[...] = jnp.zeros_like(acc_ref)
 
-    groups_per_block = q_ref.shape[0] // group
-    for i in range(groups_per_block):  # static unroll; groups_per_block is small
+    groups_per_block = s_ref.shape[0]
+    for i in range(groups_per_block):  # static unroll
         rows = slice(i * group, (i + 1) * group)
-        group_row = pl.ds(k_idx * groups_per_block + i, 1)
         w = q_ref[rows, :].astype(jnp.int32).astype(jnp.float32)
         if has_zero_point:
-            w = w - z_ref[group_row, :].astype(jnp.float32)
-        w = w * s_ref[group_row, :].astype(jnp.float32)
+            w = w - z_ref[i : i + 1, :].astype(jnp.float32)
+        w = w * s_ref[i : i + 1, :].astype(jnp.float32)
         acc_ref[...] += jnp.dot(
             x_ref[:, rows], w.astype(jnp.bfloat16), preferred_element_type=jnp.float32
         )
@@ -85,6 +87,24 @@ def _pick_block(dim: int, preferred: int, align: int) -> int:
         if dim % block == 0:
             return block
     return dim
+
+
+def _pick_block_k(k: int, group: int, preferred: int) -> int:
+    """K block for which the scale block ([block_k // group] rows) is Mosaic-legal.
+
+    Legal: divides K, a multiple of the lane width, and block_k // group is a
+    multiple of the 8-row sublane tile; or block_k == K. Prefers the largest
+    legal block <= preferred, else the smallest legal one.
+    """
+    num_groups = k // group
+    legal = [
+        groups * group
+        for groups in range(8, num_groups, 8)
+        if num_groups % groups == 0 and (groups * group) % _LANES == 0
+    ]
+    legal.append(k)
+    within = [block for block in legal if block <= preferred]
+    return max(within) if within else min(legal)
 
 
 def _validate(x, q, scales, zeros, group: int) -> None:
@@ -124,9 +144,7 @@ def wna16_matmul(
     m = x.shape[0]
 
     block_n = _pick_block(n, block_n, _LANES)
-    block_k = _pick_block(k, max(block_k, group), group)
-    if block_k % _LANES and block_k != k:
-        raise ValueError(f"block_k={block_k} must be a multiple of {_LANES}")
+    block_k = _pick_block_k(k, group, block_k)
     if block_m is None:
         block_m = min(_round_up(m, 16), 256)  # 16 = bf16 sublane packing
     m_padded = _round_up(m, block_m)
@@ -134,8 +152,7 @@ def wna16_matmul(
         x = jnp.pad(x, ((0, m_padded - m), (0, 0)))
 
     has_zero_point = zeros is not None
-    num_groups = k // group
-    scale_spec = pl.BlockSpec((num_groups, block_n), lambda i, j, kk: (0, j))
+    scale_spec = pl.BlockSpec((block_k // group, block_n), lambda i, j, kk: (kk, j))
     in_specs = [
         pl.BlockSpec((block_m, block_k), lambda i, j, kk: (i, kk)),
         pl.BlockSpec((block_k, block_n), lambda i, j, kk: (kk, j)),

@@ -117,3 +117,22 @@ def test_roofline_decode_is_memory_bound():
     dense = roofline.matmul_bound(1, 4096, 4096, None, chip)
     assert quant.mem_us > quant.mxu_us
     assert 3.5 < dense.us / quant.us < 4.0  # int4 + g128 scales/zeros ~= 3.8x fewer bytes
+
+
+@pytest.mark.parametrize(
+    "k,group,preferred,expected",
+    [
+        (4096, 128, 1024, 1024),  # 8 groups per block: smallest legal at g128
+        (4096, 128, 512, 1024),  # preferred too small -> smallest legal
+        (4096, 128, 2048, 2048),
+        (12288, 128, 4096, 4096),  # 32 groups divides 96
+        (12288, 128, 3500, 3072),  # 24 groups divides 96
+        (1024, 256, 512, 1024),  # only 4 groups total -> whole K
+        (1024, 1024, 512, 1024),  # per-channel
+    ],
+)
+def test_pick_block_k(k, group, preferred, expected):
+    block_k = wna16._pick_block_k(k, group, preferred)
+    assert block_k == expected
+    assert k % block_k == 0
+    assert block_k == k or (block_k // group) % 8 == 0
