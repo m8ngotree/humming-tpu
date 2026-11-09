@@ -34,3 +34,13 @@ def xla_awq(x, qweight, scales, qzeros):
 @jax.jit
 def bf16_matmul(x, w):
     return jnp.einsum("bd,df->bf", x, w)
+
+
+@jax.jit
+def xla_w8_channel(x, q_int8, channel_scales):
+    """Symmetric int8 weight, per-output-channel scale, dequant left to XLA.
+
+    Contrast case for xla_awq: the simplest dequant XLA could fuse into the dot.
+    """
+    weight = q_int8.astype(jnp.bfloat16) * channel_scales
+    return jnp.einsum("bd,df->bf", x, weight)
