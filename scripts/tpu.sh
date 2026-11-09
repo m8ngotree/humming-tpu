@@ -10,7 +10,7 @@ set -euo pipefail
 NAME="${TPU_NAME:-humming-tpu}"
 ACCEL="${TPU_ACCEL:-v6e-1}"
 VERSION="${TPU_VERSION:-v2-alpha-tpuv6e}"
-ZONES="${TPU_ZONES:-us-east1-d us-east5-b us-central1-b europe-west4-a asia-northeast1-b}"
+ZONES="${TPU_ZONES:-us-east4-a us-east1-d us-east5-b}"
 ZONE_FILE=".tpu_zone"
 REPO_DIR="humming-tpu"
 
