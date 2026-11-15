@@ -50,3 +50,8 @@ The main lesson from Stage 1: on TPU, **the cost of dequant arithmetic on the VP
 | 4 | **Prefill: W4A8 on the int8 MXU.** At large M, even perfect bf16 dequant is VPU-bound; int4→int8 is cheaper and the int8 MXU runs at 2× bf16 | Prefill beats bf16 |
 | 5 | **MoE grouped GEMM** with the same codec (W4A16-zp, W4A8, MXFP4) | Beats gmm_v2 on Qwen3-30B-A3B |
 | 6 | **Format breadth, the Humming part:** generalize the Stage 2b repack + bit-trick codec to N-bit (true 3/5/6-bit packing) and small-FP weights | A support matrix with every cell measured |
+
+## License
+
+Apache-2.0, see [LICENSE](LICENSE). `humming_tpu/baselines.py` reproduces a few lines of
+[tpu-inference](https://github.com/vllm-project/tpu-inference) (Apache-2.0), attributed in place.
