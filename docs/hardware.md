@@ -24,7 +24,7 @@ Per-chip numbers; v7x has 2 TensorCores per chip, and its per-core numbers are h
 - **FP4 (e2m1) decodes exactly into both targets:**
   - into fp8 e4m3 on v7x;
   - with MXFP4's power-of-two scales folded in, into int8 on v6e. All e2m1 values × 2 are integers in [−12, 12].
-- **v7x needs work split across its 2 TensorCores** (`pltpu.get_tpu_info().num_cores`, `pltpu.TensorCoreMesh`, core-parallel grid dimensions). It also has half the VMEM per core, so tiles are smaller.
+- **On v7x, JAX lists each TensorCore as its own device.** A single-device kernel runs on half a chip: 3.69 TB/s and 1.15 PF bf16, which `roofline.CHIPS["v7x"]` uses. Using the whole chip means sharding across both devices, or the core-parallel APIs (`pltpu.get_tpu_info().num_cores`, `pltpu.TensorCoreMesh`) that some tokamax kernels use. A core also has half of v6e's VMEM, so tiles are smaller.
 - **Decode is ~4.5× more bandwidth-hungry on v7x** (7.37 TB/s), so VPU dequant cost per byte matters even more there than on v6e.
 
 ## How we use the chips
