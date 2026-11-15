@@ -51,7 +51,7 @@ Done so far:
 | Kernel | What | v5e / v6e path | v7x path | Done when |
 |---|---|---|---|---|
 | **K1** `wna16` dense | int4 + zero points (AWQ/GPTQ), then int8. **(a)** apply scales/zeros in output space: `acc += (x_g @ q_g)·s_g`, zero term `xsum @ (s·z)`; **(b)** offline repack + bit-trick decode (`0x4300 \| nibble` = 128+n); **(c)** tile sweep, per-M dispatch | bf16 MXU | bf16 or **bf16 × fp8** MXU (decode only to fp8), split across 2 TensorCores | ≥ 70% of HBM roofline at M ≤ 32 on both chips; tpu-inference PR |
-| **K2** `wna8` / `wna4` dense, prefill | Weight × quantized-activation matmul, plus a fused activation-quantize kernel | W4A8 on int8 MXU, **W4A4 on int4 MXU** (4× bf16) | W4A8-fp8: int4 → e4m3 (exact), fp8 MXU (2× bf16) | Prefill beats bf16 |
+| **K2** `wna8` / `wna4` dense, prefill | Weight × quantized-activation matmul, plus a fused activation-quantize kernel | W4A8 on int8 MXU, **W4A4 on int4 MXU** (4× bf16) | Symmetric W4A8-fp8 already exists in tpu-inference; ours adds zero points and must beat theirs on measured numbers | Prefill beats bf16 |
 | **K3** grouped MoE | K1/K2 over uneven expert groups | same | same | Beats `gmm_v2` on Qwen3-30B-A3B |
 | **K4** packed low-bit | True int2/int3 (and ternary) packing, then int5/int6 | bf16 / int8 | bf16 / fp8 | 3-bit faster than 4-bit at decode |
 | **K5** FP4 weights | MXFP4 (e8m0 scales), NVFP4 (two-level scales) | e2m1 × 2 → int8 (exact) | e2m1 → e4m3 (exact) | Faster than today's MXFP4 path |

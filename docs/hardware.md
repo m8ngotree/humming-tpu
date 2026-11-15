@@ -19,7 +19,7 @@ Per-chip numbers; v7x has 2 TensorCores per chip, and its per-core numbers are h
 
 - **Low-precision MXU paths differ by chip:**
   - **v5e/v6e:** the fast paths are **int8 and int4**, so W4A8 and W4A4 run on the integer MXU.
-  - **v7x:** the fast path is **fp8**. W4A8 becomes int4 → fp8 e4m3, which is exact for every 4-bit integer, followed by an fp8 × fp8 matmul.
+  - **v7x:** the fast path is **fp8**. W4A8 becomes int4 → fp8 e4m3, which is exact for every 4-bit integer, followed by an fp8 × fp8 matmul. tpu-inference already ships the symmetric version of this (#1841, #2236).
 - **v7x multiplies bf16 × fp8 natively.** For W4A16 on v7x, weights can be decoded only as far as fp8, with no bf16 dequant. Whether int → fp8 conversion is cheaper on the VPU than int → bf16 needs measuring.
 - **FP4 (e2m1) decodes exactly into both targets:**
   - into fp8 e4m3 on v7x;

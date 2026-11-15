@@ -170,7 +170,7 @@ Sources are the current code of tokamax, tpu-inference, qwix and JAX. Only "meas
 | FP8 / INT8 W8A8 dense, group scales | tpu-inference `quantized_matmul` (tuned int8×int8 on v6; fp8×fp8, fp8×fp4 on v7) | Covered |
 | Dense BF16 GEMM | XLA | Covered |
 | MoE grouped GEMM, symmetric quantized (`m_grouped_*`, Humming `grouped_*`) | tokamax `gmm_v2`, `ragged_dot` | Covered |
-| MoE weight-gradient GEMM (`k_grouped_*`) | tokamax `tgmm_v2` | Covered |
+| MoE weight-gradient GEMM (`k_grouped_*`) | tokamax `tgmm_v2` | Covered for bf16 and per-column scales. `tgmm_v2` only accepts a `(1, 1, N)` rhs scale, so **fine-grained (1×128) FP8 weight-gradient is open** |
 | Lightning indexer / MQA logits | tokamax `lightning_indexer`, tpu-inference `deepseek_v4/indexer` | Covered |
 | mHC (`tf32_hc_prenorm_gemm`) | tokamax `mhc`, `mhc_lite`; tpu-inference `deepseek_v4/mhc` | Covered |
 | Mega MoE (inference) | tokamax `fused_moe`, tpu-inference `fused_moe` | Covered (training is our mok-tpu project) |
@@ -178,7 +178,8 @@ Sources are the current code of tokamax, tpu-inference, qwix and JAX. Only "meas
 | **Zero-point weights (AWQ/GPTQ), dense** | Every kernel raises `zero_point is not supported`; XLA fallback | **Open, measured at 0.38–0.79× bf16 on v6e** |
 | **Zero-point weights, MoE** | `gmm_v2` / `ragged_dot` raise the same error | **Open** |
 | **Packed 1/2/3/5/6/7-bit weights** | Qwix stores them in int4/int8 containers | **Open** |
-| **W4A8** | No int4-weight tunings anywhere | **Open** |
+| W4A8, int4 weight × **fp8** activation (v7x) | tpu-inference blockwise `quantized_matmul` (int4×fp8 since #1841, 2026-03) and compressed-tensors W4A8-fp8 layers (#2236, 2026-04). Symmetric, uint4 storage | Covered (no published perf numbers) |
+| **W4A8, int4 weight × int8 activation (v5e/v6e)** | No int4 × int8 tunings; not verified whether the blockwise kernel runs it | **Probably open** |
 | **W4A4 (int4 × int4)** | Not exposed, though v5e/v6e MXUs do int4×int4 natively (4× bf16) | **Open** |
 | **FP4 weights on v5e/v6e** | fp4 tuned only for v7 | **Mostly open** |
 | **Arbitrary small-FP weights** (fp5/fp6/fp7, zero-exponent formats) | None | **Open** |
