@@ -39,17 +39,24 @@ uv run python bench/phase1_gap.py --smoke        # CPU smoke test of the benchma
 
 ## Plan
 
-The main lesson from Stage 1: on TPU, **the cost of dequant arithmetic on the VPU sets the speed, even at decode**. The VPU is TPU's vector unit, which is weak relative to the MXU. Our straightforward kernel moves 4× fewer bytes but runs no faster than bf16. Every stage below is organized around cutting VPU instructions per weight element.
+[docs/landscape.md](docs/landscape.md) lists everything Humming and DeepGEMM offer and which of it TPU already covers. The open space is Humming's: flexible low-bit **weight** formats.
+[docs/hardware.md](docs/hardware.md) explains why each kernel needs a v5e/v6e variant and a v7x variant: v5e/v6e have int8/int4 MXUs, while v7x has fp8 and bf16 × fp8.
 
-| Stage | What | Done when |
-|---|---|---|
-| 0 ✅ | Format spec, fp32 reference, AWQ importer, baselines, roofline, v0 kernel | Tests pass in interpret mode and under Mosaic on v6e |
-| 1 ✅ | Measure the gap on v6e | [Go](results/phase1_v6e.md): xla_awq is 0.38–0.79× bf16; v0 is VPU-bound at ~20% of roofline |
-| 2 | **Cheap dequant.** Measured one change at a time with profiler device time: **(a)** apply scales and zeros in output space: `acc += (x_g @ q_g)·s_g`, with the zero term as `xsum @ (s·z)`, so dequant work is per output, not per weight; **(b)** offline repack plus a bit trick that turns int4 into bf16 in ~2 bitwise ops per 32-bit word (`0x4300 \| nibble` = 128+n; fold the −128 into the zero point), Marlin's idea mapped onto TPU's packed-bf16 vreg layout; **(c)** tile/DMA sweep and per-M dispatch | ≥ 70% of HBM roofline at M ≤ 32 on Qwen3-8B shapes (~3× bf16) |
-| 3 | **Upstream.** tpu-inference issue with Stage 1 data, then a PR routing AWQ/GPTQ linears to the kernel; end-to-end vLLM numbers; write-up #1 | PR open |
-| 4 | **Prefill: W4A8 on the int8 MXU.** At large M, even perfect bf16 dequant is VPU-bound; int4→int8 is cheaper and the int8 MXU runs at 2× bf16 | Prefill beats bf16 |
-| 5 | **MoE grouped GEMM** with the same codec (W4A16-zp, W4A8, MXFP4) | Beats gmm_v2 on Qwen3-30B-A3B |
-| 6 | **Format breadth, the Humming part:** generalize the Stage 2b repack + bit-trick codec to N-bit (true 3/5/6-bit packing) and small-FP weights | A support matrix with every cell measured |
+The main lesson from Stage 1: on TPU, **the cost of dequant arithmetic on the VPU sets the speed, even at decode**. Our straightforward kernel moves 4× fewer bytes but runs no faster than bf16. Every kernel is organized around cutting VPU instructions per weight element.
+
+Done so far:
+- **Stage 0:** format spec, fp32 reference, AWQ importer, baselines, roofline, v0 kernel; tests pass in interpret mode and under Mosaic on v6e.
+- **Stage 1:** [the gap on v6e](results/phase1_v6e.md). tpu-inference's AWQ path is 0.38–0.79× bf16; v0 is VPU-bound at ~20% of roofline.
+
+| Kernel | What | v5e / v6e path | v7x path | Done when |
+|---|---|---|---|---|
+| **K1** `wna16` dense | int4 + zero points (AWQ/GPTQ), then int8. **(a)** apply scales/zeros in output space: `acc += (x_g @ q_g)·s_g`, zero term `xsum @ (s·z)`; **(b)** offline repack + bit-trick decode (`0x4300 \| nibble` = 128+n); **(c)** tile sweep, per-M dispatch | bf16 MXU | bf16 or **bf16 × fp8** MXU (decode only to fp8), split across 2 TensorCores | ≥ 70% of HBM roofline at M ≤ 32 on both chips; tpu-inference PR |
+| **K2** `wna8` / `wna4` dense, prefill | Weight × quantized-activation matmul, plus a fused activation-quantize kernel | W4A8 on int8 MXU, **W4A4 on int4 MXU** (4× bf16) | W4A8-fp8: int4 → e4m3 (exact), fp8 MXU (2× bf16) | Prefill beats bf16 |
+| **K3** grouped MoE | K1/K2 over uneven expert groups | same | same | Beats `gmm_v2` on Qwen3-30B-A3B |
+| **K4** packed low-bit | True int2/int3 (and ternary) packing, then int5/int6 | bf16 / int8 | bf16 / fp8 | 3-bit faster than 4-bit at decode |
+| **K5** FP4 weights | MXFP4 (e8m0 scales), NVFP4 (two-level scales) | e2m1 × 2 → int8 (exact) | e2m1 → e4m3 (exact) | Faster than today's MXFP4 path |
+
+Each kernel reuses the previous one's pieces (codec, scaling strategy, MXU path, tiling), so later formats are new codecs, not new kernels.
 
 ## License
 
