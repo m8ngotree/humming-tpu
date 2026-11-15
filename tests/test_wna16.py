@@ -136,3 +136,10 @@ def test_pick_block_k(k, group, preferred, expected):
     assert block_k == expected
     assert k % block_k == 0
     assert block_k == k or (block_k // group) % 8 == 0
+
+
+def test_roofline_v7x_device_is_half_a_chip():
+    cfg = WeightConfig(shape_k=4096, shape_n=4096)
+    core = roofline.matmul_bound(1, 4096, 4096, cfg, roofline.CHIPS["v7x"])
+    chip = roofline.matmul_bound(1, 4096, 4096, cfg, roofline.CHIPS["v7x-chip"])
+    assert core.us == pytest.approx(2 * chip.us, rel=0.01)

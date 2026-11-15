@@ -1,9 +1,10 @@
-"""Roofline lower bounds for a quantized matmul on one TPU chip.
+"""Roofline lower bounds for a quantized matmul on one JAX TPU device.
 
-time >= max(bytes / HBM bandwidth, flops / MXU peak), using public per-chip specs
-(v7x numbers are per chip, i.e. both TensorCores). VPU dequant cost is deliberately
-not modelled: at large M, the gap between this bound and measured time is where
-VPU limits show up.
+time >= max(bytes / HBM bandwidth, flops / MXU peak), using public specs for one
+JAX device. On v5e/v6e that is a whole chip. On v7x it is one TensorCore (half a
+chip), because JAX lists each core as a separate device. VPU dequant cost is
+deliberately not modelled: at large M, the gap between this bound and measured
+time is where VPU limits show up.
 """
 
 from __future__ import annotations
@@ -24,7 +25,10 @@ class Chip:
 CHIPS = {
     "v5e": Chip("v5e", hbm_gbps=819, bf16_tflops=197, int8_tops=394),
     "v6e": Chip("v6e", hbm_gbps=1640, bf16_tflops=918, int8_tops=1836),
-    "v7x": Chip("v7x", hbm_gbps=7370, bf16_tflops=2307, int8_tops=4614),
+    # JAX lists each v7x TensorCore as its own device, so a single-device kernel
+    # runs on half a chip. "v7x" is that per-device bound; "v7x-chip" is both cores.
+    "v7x": Chip("v7x", hbm_gbps=3685, bf16_tflops=1154, int8_tops=2307),
+    "v7x-chip": Chip("v7x-chip", hbm_gbps=7370, bf16_tflops=2307, int8_tops=4614),
 }
 
 
