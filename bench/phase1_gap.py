@@ -63,6 +63,12 @@ def temp_bytes(fn: Callable, *args) -> int | None:
     return None if analysis is None else int(analysis.temp_size_in_bytes)
 
 
+def scrub_paths(text: str) -> str:
+    """Replace absolute source paths with repo-relative ones (HLO metadata embeds them)."""
+    repo_root = str(pathlib.Path(__file__).resolve().parents[1])
+    return text.replace(repo_root + "/", "").replace(str(pathlib.Path.home()), "~")
+
+
 def build_weights(k: int, n: int):
     cfg = WeightConfig(shape_k=k, shape_n=n, b_dtype="uint4", weight_scale_group_size=GROUP)
     w = jax.random.normal(jax.random.key(0), (k, n), jnp.float32) * 0.02
@@ -144,7 +150,7 @@ def main() -> None:
                 )
             if args.dump_hlo and m in (1, 512):
                 for path in ("xla_w8", "xla_awq"):
-                    hlo = compiled(paths[path], x, *weights[path]).as_text()
+                    hlo = scrub_paths(compiled(paths[path], x, *weights[path]).as_text())
                     (out_dir / f"hlo_{tag}_{name}_{path}_m{m}.txt").write_text(hlo)
 
     out = pathlib.Path(args.out or out_dir / f"phase1_{tag}.json")
